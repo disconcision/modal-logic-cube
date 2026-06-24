@@ -21,14 +21,24 @@ with no camera/3D, so it couldn't provide the requested 3-DOF multitouch camera.
     in fewer dimensions first (e.g. just `{t,d}` is the minimal `t⊨d` fold:
     a square → the chain K→D→T).
   - **Three layouts**: a geometric **cube** (penteract projection), a graded
-    **diamond** (rank-by-rank, the 1-5-10-10-5-1 lattice), and **fig 1** — a
-    linear *sum-of-axis-vectors* embedding that reduces **exactly** to the
-    first page's textbook layout for the modal preset (it puts `t` and `d` on
-    one axis because `t ⊨ d` chains them), and generalizes to any rule set.
+    **diamond** (rank-by-rank, the 1-5-10-10-5-1 lattice), and **merged axes** —
+    a linear *sum-of-axis-vectors* embedding that automatically puts axioms on a
+    **shared axis when they form a single-implication chain**. It detects the
+    chains from the current rules (minimum chain cover / Dilworth), so for the
+    modal preset it reproduces page 1's textbook layout exactly (`t` and `d`
+    share the vertical axis because `t ⊨ d`), and it adapts to any rule set. The
+    read-out shows the grouping, e.g. `t·d | 4 | b | 5 → 4 directions`.
   - **covers only**: hides the transitive edges to leave the clean Hasse diagram.
 
-  This is the answer to "the modal cube is a collapsed penteract" — you can
-  watch it collapse, and orient yourself with the familiar fig-1 view.
+  Defaults to the modal preset, merged-axes view, covers-only — i.e. the fig-1
+  answer to "the modal cube is a collapsed penteract." Switch to `Independent` +
+  `cube` to see the unfolded 5-cube.
+
+  *Dimension vs. node collapse:* single-axiom implications (`t ⊨ d`) **merge
+  axes** (5 → 4 directions); conjunctive rules (`b ∧ 4 ⊨ 5`) **collapse nodes**
+  but not axes (the `Sym/Trans/Eucl interlock` preset still reports 5 directions
+  while folding 32 → 24 logics). Merging the `t,d` chain still leaves 4
+  directions > 3 spatial axes, which is why axiom 5 lands on a diagonal.
 
 ## Run
 

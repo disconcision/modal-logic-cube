@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
-  AXES, N, NSUB, AX_COLOR, axesOf, popcount, maskOf,
+  AXES, N, NSUB, AX_COLOR, axesOf, popcount, maskOf, closure,
   makeRule, analyze, PRESETS, MODAL_NAMES,
 } from "./closure.js";
 
@@ -38,18 +38,7 @@ const CUBE_CENTER = new THREE.Vector3();
 AXES.forEach((a) => CUBE_CENTER.add(CUBE_DIR[a]));
 CUBE_CENTER.multiplyScalar(0.5);
 
-// fig-1 layout: the textbook embedding, = base + sum of per-axiom vectors,
-// with t and d sharing the vertical axis (since t ⊨ d makes them a chain).
-// Reproduces page 1's coordinates exactly for the modal closed sets.
-const FIG1_BASE = new THREE.Vector3(0, -3, 3);
-const FIG1_DIR = {
-  t: new THREE.Vector3(0, 3, 0), d: new THREE.Vector3(0, 3, 0),
-  b: new THREE.Vector3(3, 0, 0), "4": new THREE.Vector3(0, 0, -3),
-  "5": new THREE.Vector3(1.5, 0, -1.5),
-};
-const FIG1_SCALE = 1.35;
-
-const cubePosCache = [], diamondPosCache = [], fig1PosCache = [];
+const cubePosCache = [], diamondPosCache = [];
 for (let m = 0; m < NSUB; m++) {
   const p = new THREE.Vector3().sub(CUBE_CENTER);
   AXES.forEach((a, i) => { if (m & (1 << i)) p.add(CUBE_DIR[a]); });
@@ -65,18 +54,70 @@ for (let m = 0; m < NSUB; m++) {
     }
   });
   diamondPosCache[m] = new THREE.Vector3(h.x * 2.5, (rank - 2.5) * 2.5, h.y * 2.5);
-
-  const f = FIG1_BASE.clone();
-  AXES.forEach((a, i) => { if (m & (1 << i)) f.add(FIG1_DIR[a]); });
-  fig1PosCache[m] = f;
 }
-// centre + scale the fig-1 layout so it shares the others' frame
-const fig1Centroid = new THREE.Vector3();
-fig1PosCache.forEach((p) => fig1Centroid.add(p));
-fig1Centroid.multiplyScalar(1 / NSUB);
-fig1PosCache.forEach((p) => p.sub(fig1Centroid).multiplyScalar(FIG1_SCALE));
 
-const LAYOUTS = [cubePosCache, diamondPosCache, fig1PosCache];
+// "merged axes" layout (recomputed on every rule/dimension change):
+//   a sum-of-axis-vectors embedding where axioms that lie on a single-axiom
+//   IMPLICATION CHAIN share one direction. Generalises the fig-1 trick: t and d
+//   chain (t ⊨ d) so they get one axis; for the modal preset this reproduces
+//   page 1 exactly. The chain count = number of independent directions needed.
+const MERGE_DIRS = [
+  new THREE.Vector3(0, 3.2, 0),       // 1st chain -> vertical
+  new THREE.Vector3(0, 0, -3.2),      // 2nd       -> depth
+  new THREE.Vector3(3.2, 0, 0),       // 3rd       -> horizontal
+  new THREE.Vector3(1.6, 0, -1.6),    // 4th       -> diagonal (can't be axis-parallel in 3-D)
+  new THREE.Vector3(-1.35, 1.6, 1.7), // 5th       -> diagonal
+];
+const mergedPosCache = new Array(NSUB);
+let mergedChains = []; // for the read-out / explanation
+
+function recomputeMergedLayout(arules) {
+  const active = AXES.filter((a) => activeAxes.has(a));
+  const idx = (a) => AXES.indexOf(a);
+  const bitOf = (a) => 1 << idx(a);
+  const forces = {};
+  for (const a of active) forces[a] = closure(bitOf(a), arules); // a forces all bits in here
+  const prec = (a, b) => {
+    const ab = !!(forces[a] & bitOf(b)), ba = !!(forces[b] & bitOf(a));
+    return ab && ba ? idx(a) < idx(b) : ab;     // mutual implication -> order by index
+  };
+  // minimum chain cover (= Dilworth) via Kuhn's bipartite matching on the
+  // comparability DAG: matchR[b] = a means b follows a in a chain.
+  const matchR = {};
+  const tryK = (a, seen) => {
+    for (const b of active) {
+      if (a === b || !prec(a, b) || seen.has(b)) continue;
+      seen.add(b);
+      if (matchR[b] === undefined || tryK(matchR[b], seen)) { matchR[b] = a; return true; }
+    }
+    return false;
+  };
+  for (const a of active) tryK(a, new Set());
+  const succOf = {}, hasPred = new Set();
+  for (const b in matchR) { succOf[matchR[b]] = b; hasPred.add(b); }
+  const chains = [];
+  for (const a of active) {
+    if (hasPred.has(a)) continue;        // chain head = node with no predecessor
+    const chain = []; let x = a;
+    while (x !== undefined) { chain.push(x); x = succOf[x]; }
+    chains.push(chain);
+  }
+  chains.sort((c1, c2) => Math.min(...c1.map(idx)) - Math.min(...c2.map(idx)));
+  mergedChains = chains;
+  const dirOf = {};
+  chains.forEach((chain, ci) => chain.forEach((a) => (dirOf[a] = MERGE_DIRS[ci])));
+
+  const centroid = new THREE.Vector3();
+  for (let m = 0; m < NSUB; m++) {
+    const p = new THREE.Vector3();
+    AXES.forEach((a, i) => { if ((m & (1 << i)) && dirOf[a]) p.add(dirOf[a]); });
+    mergedPosCache[m] = p; centroid.add(p);
+  }
+  centroid.multiplyScalar(1 / NSUB);
+  for (let m = 0; m < NSUB; m++) mergedPosCache[m].sub(centroid);
+}
+
+const LAYOUTS = [cubePosCache, diamondPosCache, mergedPosCache];
 const _tmp = new THREE.Vector3();
 function layoutPos(mask, out) { return out.copy(LAYOUTS[layoutMode][mask]); }
 
@@ -156,7 +197,9 @@ function activeRules() {
 
 function recompute() {
   activeMask = maskOf([...activeAxes]);
-  const a = analyze(activeRules(), activeMask);
+  const arules = activeRules();
+  recomputeMergedLayout(arules);
+  const a = analyze(arules, activeMask);
   repr = a.repr;
   closedSet = new Set(a.closed);
   coverPairs = new Set();
@@ -186,6 +229,12 @@ function recompute() {
   document.getElementById("n-total").textContent = 1 << k;
   document.getElementById("n-edges").textContent = coversOnly ? coverCount : quotientCount;
   document.getElementById("e-total").textContent = k * (1 << Math.max(0, k - 1));
+
+  // merged-axes read-out: how the axioms group into independent directions
+  const groups = mergedChains.map((c) => c.join("·")).join("  |  ");
+  document.getElementById("merge-info").textContent =
+    `merged axes:  ${groups}  →  ${mergedChains.length} direction${mergedChains.length === 1 ? "" : "s"}` +
+    (mergedChains.length > 3 ? " (>3 ⇒ a diagonal in 3-D)" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -357,13 +406,14 @@ function tick() {
 }
 
 function start() {
-  document.getElementById("covers").checked = false; coversOnly = false;
+  // default to the "answer": modal preset, merged-axes (fig-1) view, clean covers
+  document.getElementById("covers").checked = true; coversOnly = true;
   document.getElementById("labels-on").checked = true; showLabels = true;
-  layoutMode = 0;
-  layoutSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.layout === "0"));
+  layoutMode = 2;
+  layoutSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.layout === "2"));
   activeAxes = new Set(AXES);
   renderDims();
-  loadPreset("independent");
+  loadPreset("modal");
 }
 start();
 addEventListener("pageshow", start);

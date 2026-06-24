@@ -97,9 +97,9 @@
     <div class="seclabel">View</div>
     <div class="opts">
       <div class="seg" id="layout-seg">
-        <button data-layout="0" class="active">cube</button>
+        <button data-layout="0">cube</button>
         <button data-layout="1">diamond</button>
-        <button data-layout="2">fig&nbsp;1</button>
+        <button data-layout="2" class="active">merged&nbsp;axes</button>
       </div>
       <label class="opt"><input type="checkbox" id="covers" autocomplete="off"> covers only (hide transitive edges)</label>
       <label class="opt"><input type="checkbox" id="labels-on" autocomplete="off" checked> show labels</label>
@@ -108,6 +108,7 @@
     <div class="count">
       <div class="big"><b id="n-closed">32</b> closed logics <span style="color:var(--dim)">/ <span id="n-total">32</span></span>
         &nbsp;·&nbsp; <b id="n-edges">80</b> edges <span style="color:var(--dim)">/ <span id="e-total">80</span></span></div>
+      <div id="merge-info" style="margin-top:6px;color:var(--dim);font-size:11.5px"></div>
     </div>
     <div class="hint"><b>Camera:</b> drag = orbit · scroll/pinch = zoom · right-drag / two-finger = pan.</div>
     <div class="nav"><a href="./index.html">← back to the modal cube (the folded result)</a></div>
