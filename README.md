@@ -9,6 +9,18 @@ Built with **Three.js** (WebGL) — chosen for genuine 3D + native multitouch
 camera control. (The originally-suggested `dragology` is a 2D-SVG React library
 with no camera/3D, so it couldn't provide the requested 3-DOF multitouch camera.)
 
+## Two pages
+
+- **`index.html`** — the modal logic cube: the K…S5 Hasse diagram, toggle axioms.
+- **`collapse.html`** — *Folding the 5-cube*: starts from the full 5-cube (32
+  logics, the "hyper-hyper-cube") and lets you enter **Horn dependency rules**
+  (`premises ⊨ conclusion`) that identify vertices and **fold** the hypercube
+  down. The `Modal logic` preset reproduces the 15-logic structure of the first
+  page. Switch between a geometric **5-cube** layout and a graded **diamond**
+  (rank-by-rank) layout; "covers only" hides the transitive edges to leave the
+  clean Hasse diagram. This is the answer to "the modal cube is a collapsed
+  penteract" — you can watch it collapse.
+
 ## Run
 
 ES-module imports require the files to be served over HTTP (not opened as
@@ -16,7 +28,8 @@ ES-module imports require the files to be served over HTTP (not opened as
 
 ```bash
 python3 -m http.server 8731
-# then open http://localhost:8731/
+# then open http://localhost:8731/            (modal cube)
+#        or http://localhost:8731/collapse.html (folding the 5-cube)
 ```
 
 or `npx serve` / any static file server. Everything (Three.js, OrbitControls,
@@ -34,9 +47,10 @@ CSS2DRenderer) is vendored under `vendor/`, so it runs fully offline.
 
 | file | purpose |
 |------|---------|
-| `index.html`    | page shell, panel markup, styles, import map |
+| `index.html` / `main.js` | the modal cube page + its Three.js scene |
 | `modal-logic.js`| the lattice: closure of frame conditions, the 15 logics, dynamic Hasse-diagram + edge colouring (no rendering deps) |
-| `main.js`       | Three.js scene, nodes/edges/labels, OrbitControls camera, auto-fit, UI wiring |
+| `collapse.html` / `collapse.js` | the "folding the 5-cube" page + its scene |
+| `closure.js`    | B₅ (32 subsets), closure under arbitrary Horn rules, the quotient/cover analysis, presets (no rendering deps) |
 | `vendor/`       | vendored Three.js r160 + OrbitControls + CSS2DRenderer |
 
 ## The logic (how the diagram is computed)
