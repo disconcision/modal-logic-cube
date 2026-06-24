@@ -44,20 +44,24 @@ export function closure(mask, rules) {
   return m;
 }
 
-// Full analysis for a rule set: representative of every vertex, the closed
-// masks, the quotient edges, and which of those edges are covers.
-export function analyze(rules) {
-  const repr = new Array(NSUB);
-  for (let m = 0; m < NSUB; m++) repr[m] = closure(m, rules);
+// Full analysis for a rule set, restricted to subsets of `activeMask` (the
+// axioms "in play"): representative of every vertex, the closed masks, the
+// quotient edges, and which of those edges are covers.
+export function analyze(rules, activeMask = NSUB - 1) {
+  const inU = (m) => (m & ~activeMask) === 0;          // m ⊆ activeMask
+  const repr = new Array(NSUB).fill(-1);
+  for (let m = 0; m < NSUB; m++) if (inU(m)) repr[m] = closure(m, rules);
   const closed = [];
-  for (let m = 0; m < NSUB; m++) if (repr[m] === m) closed.push(m);
+  for (let m = 0; m < NSUB; m++) if (inU(m) && repr[m] === m) closed.push(m);
 
-  // the 80 edges of B5 (differ by one bit), tagged by the axis that differs
+  // the edges of the active sub-cube (differ by one active bit), tagged by axis
   const cubeEdges = [];
   for (let m = 0; m < NSUB; m++) {
+    if (!inU(m)) continue;
     for (let i = 0; i < N; i++) {
       const b = 1 << i;
-      if (!(m & b)) cubeEdges.push({ lo: m, hi: m | b, axis: AXES[i] });
+      if (m & b || !(activeMask & b)) continue;
+      cubeEdges.push({ lo: m, hi: m | b, axis: AXES[i] });
     }
   }
 

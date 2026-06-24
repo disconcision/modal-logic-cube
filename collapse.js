@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
-  AXES, N, NSUB, AX_COLOR, axesOf, popcount,
+  AXES, N, NSUB, AX_COLOR, axesOf, popcount, maskOf,
   makeRule, analyze, PRESETS, MODAL_NAMES,
 } from "./closure.js";
 
@@ -11,9 +11,11 @@ import {
 // ---------------------------------------------------------------------------
 // rules: [{ prem:Set<axis>, concl:axis|null }]
 let rules = [];
-let layoutTarget = 0;          // 0 = cube, 1 = diamond
+let layoutMode = 0;            // 0 = cube, 1 = diamond, 2 = fig-1
 let coversOnly = false;
 let showLabels = true;
+let activeAxes = new Set(AXES); // which axioms are "in play" (dimensions)
+let activeMask = NSUB - 1;
 
 // derived (recomputed on any rule change)
 let repr = new Array(NSUB);
@@ -36,7 +38,18 @@ const CUBE_CENTER = new THREE.Vector3();
 AXES.forEach((a) => CUBE_CENTER.add(CUBE_DIR[a]));
 CUBE_CENTER.multiplyScalar(0.5);
 
-const cubePosCache = [], diamondPosCache = [];
+// fig-1 layout: the textbook embedding, = base + sum of per-axiom vectors,
+// with t and d sharing the vertical axis (since t ⊨ d makes them a chain).
+// Reproduces page 1's coordinates exactly for the modal closed sets.
+const FIG1_BASE = new THREE.Vector3(0, -3, 3);
+const FIG1_DIR = {
+  t: new THREE.Vector3(0, 3, 0), d: new THREE.Vector3(0, 3, 0),
+  b: new THREE.Vector3(3, 0, 0), "4": new THREE.Vector3(0, 0, -3),
+  "5": new THREE.Vector3(1.5, 0, -1.5),
+};
+const FIG1_SCALE = 1.35;
+
+const cubePosCache = [], diamondPosCache = [], fig1PosCache = [];
 for (let m = 0; m < NSUB; m++) {
   const p = new THREE.Vector3().sub(CUBE_CENTER);
   AXES.forEach((a, i) => { if (m & (1 << i)) p.add(CUBE_DIR[a]); });
@@ -52,12 +65,20 @@ for (let m = 0; m < NSUB; m++) {
     }
   });
   diamondPosCache[m] = new THREE.Vector3(h.x * 2.5, (rank - 2.5) * 2.5, h.y * 2.5);
+
+  const f = FIG1_BASE.clone();
+  AXES.forEach((a, i) => { if (m & (1 << i)) f.add(FIG1_DIR[a]); });
+  fig1PosCache[m] = f;
 }
+// centre + scale the fig-1 layout so it shares the others' frame
+const fig1Centroid = new THREE.Vector3();
+fig1PosCache.forEach((p) => fig1Centroid.add(p));
+fig1Centroid.multiplyScalar(1 / NSUB);
+fig1PosCache.forEach((p) => p.sub(fig1Centroid).multiplyScalar(FIG1_SCALE));
+
+const LAYOUTS = [cubePosCache, diamondPosCache, fig1PosCache];
 const _tmp = new THREE.Vector3();
-function layoutPos(mask, out) {
-  return out.lerpVectors(cubePosCache[mask], diamondPosCache[mask], layoutEased);
-}
-let layoutEased = 0; // animated toward layoutTarget
+function layoutPos(mask, out) { return out.copy(LAYOUTS[layoutMode][mask]); }
 
 // ---------------------------------------------------------------------------
 //  Three.js scene
@@ -125,15 +146,17 @@ for (let m = 0; m < NSUB; m++) {
 // ---------------------------------------------------------------------------
 //  Recompute closure-derived data
 // ---------------------------------------------------------------------------
+// rules valid in the current dimension set (every axiom they mention is active)
 function activeRules() {
-  // drop incomplete rules (need a conclusion and >=1 premise)
   return rules
     .filter((r) => r.concl && r.prem.size > 0)
+    .filter((r) => activeAxes.has(r.concl) && [...r.prem].every((a) => activeAxes.has(a)))
     .map((r) => makeRule([...r.prem], r.concl));
 }
 
 function recompute() {
-  const a = analyze(activeRules());
+  activeMask = maskOf([...activeAxes]);
+  const a = analyze(activeRules(), activeMask);
   repr = a.repr;
   closedSet = new Set(a.closed);
   coverPairs = new Set();
@@ -144,11 +167,11 @@ function recompute() {
   quotientCount = a.quotient.length;
   coverCount = cov;
 
-  // labels: only on representatives, and only when not too crowded — so the
-  // full cube stays clean and logic names "emerge" as it folds down.
+  // labels: only on (active) representatives, and only when not too crowded — so
+  // the full cube stays clean and logic names "emerge" as it folds down.
   const labelsOn = showLabels && closedSet.size <= 18;
   for (const v of verts) {
-    const isRep = repr[v.mask] === v.mask;
+    const isRep = repr[v.mask] === v.mask; // repr is -1 for inactive masks
     if (isRep && labelsOn) {
       const name = MODAL_NAMES[v.mask];
       v.el.textContent = name || axesOf(v.mask).join("") || "∅";
@@ -158,8 +181,11 @@ function recompute() {
       v.label.visible = false;
     }
   }
+  const k = activeAxes.size;
   document.getElementById("n-closed").textContent = closedSet.size;
+  document.getElementById("n-total").textContent = 1 << k;
   document.getElementById("n-edges").textContent = coversOnly ? coverCount : quotientCount;
+  document.getElementById("e-total").textContent = k * (1 << Math.max(0, k - 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,11 +193,10 @@ function recompute() {
 // ---------------------------------------------------------------------------
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _mid = new THREE.Vector3();
 function updateScene() {
-  // ease layout toward target
-  layoutEased += (layoutTarget - layoutEased) * 0.12;
-
-  // move each vertex toward its representative's layout position
+  // move each vertex toward its representative's layout position (the per-frame
+  // lerp also animates morphs between layouts and folds between rule sets)
   for (const v of verts) {
+    if (v.mask & ~activeMask) { v.mesh.visible = false; continue; } // inactive dimension
     layoutPos(repr[v.mask], _tmp);
     v.mesh.position.lerp(_tmp, 0.14);
     const isRep = repr[v.mask] === v.mask;
@@ -183,6 +208,7 @@ function updateScene() {
 
   // edges follow their endpoints
   for (const e of edges) {
+    if ((e.lo | e.hi) & ~activeMask) { e.mesh.visible = false; continue; } // touches inactive axiom
     const ra = repr[e.lo], rb = repr[e.hi];
     const collapsed = ra === rb;
     let show;
@@ -289,9 +315,29 @@ document.getElementById("addrule").addEventListener("click", () => {
 const layoutSeg = document.getElementById("layout-seg");
 layoutSeg.querySelectorAll("button").forEach((b) =>
   b.addEventListener("click", () => {
-    layoutTarget = Number(b.dataset.layout);
+    layoutMode = Number(b.dataset.layout);
     layoutSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
   }));
+
+// dimensions: which axioms are "in play"
+const dimsEl = document.getElementById("dims");
+function renderDims() {
+  dimsEl.innerHTML = "";
+  AXES.forEach((ax) => {
+    const on = activeAxes.has(ax);
+    const c = document.createElement("button");
+    c.className = "chip" + (on ? " on" : "");
+    c.textContent = ax;
+    c.style.background = on ? AX_COLOR[ax] : "";
+    c.style.borderColor = on ? AX_COLOR[ax] : "";
+    c.addEventListener("click", () => {
+      if (on) { if (activeAxes.size > 1) activeAxes.delete(ax); } // keep >=1
+      else activeAxes.add(ax);
+      renderDims(); recompute();
+    });
+    dimsEl.appendChild(c);
+  });
+}
 document.getElementById("covers").addEventListener("change", (e) => { coversOnly = e.target.checked; recompute(); });
 document.getElementById("labels-on").addEventListener("change", (e) => { showLabels = e.target.checked; recompute(); });
 
@@ -313,7 +359,10 @@ function tick() {
 function start() {
   document.getElementById("covers").checked = false; coversOnly = false;
   document.getElementById("labels-on").checked = true; showLabels = true;
-  layoutTarget = 0; layoutEased = 0;
+  layoutMode = 0;
+  layoutSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.layout === "0"));
+  activeAxes = new Set(AXES);
+  renderDims();
   loadPreset("independent");
 }
 start();

@@ -16,10 +16,19 @@ with no camera/3D, so it couldn't provide the requested 3-DOF multitouch camera.
   logics, the "hyper-hyper-cube") and lets you enter **Horn dependency rules**
   (`premises ⊨ conclusion`) that identify vertices and **fold** the hypercube
   down. The `Modal logic` preset reproduces the 15-logic structure of the first
-  page. Switch between a geometric **5-cube** layout and a graded **diamond**
-  (rank-by-rank) layout; "covers only" hides the transitive edges to leave the
-  clean Hasse diagram. This is the answer to "the modal cube is a collapsed
-  penteract" — you can watch it collapse.
+  page. Features:
+  - **Dimensions**: toggle which axioms are "in play" (1–5) to build intuition
+    in fewer dimensions first (e.g. just `{t,d}` is the minimal `t⊨d` fold:
+    a square → the chain K→D→T).
+  - **Three layouts**: a geometric **cube** (penteract projection), a graded
+    **diamond** (rank-by-rank, the 1-5-10-10-5-1 lattice), and **fig 1** — a
+    linear *sum-of-axis-vectors* embedding that reduces **exactly** to the
+    first page's textbook layout for the modal preset (it puts `t` and `d` on
+    one axis because `t ⊨ d` chains them), and generalizes to any rule set.
+  - **covers only**: hides the transitive edges to leave the clean Hasse diagram.
+
+  This is the answer to "the modal cube is a collapsed penteract" — you can
+  watch it collapse, and orient yourself with the familiar fig-1 view.
 
 ## Run
 
