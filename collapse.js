@@ -243,14 +243,6 @@ function recompute() {
   document.getElementById("n-total").textContent = 1 << k;
   document.getElementById("n-edges").textContent = coversOnly ? coverCount : quotientCount;
   document.getElementById("e-total").textContent = k * (1 << Math.max(0, k - 1));
-
-  // merged-axes read-out: how the axioms group into independent directions
-  const groups = mergedChains.map((c) => c.join("·")).join("  |  ");
-  document.getElementById("merge-info").textContent =
-    `merged axes:  ${groups}  →  ${mergedChains.length} direction${mergedChains.length === 1 ? "" : "s"}` +
-    (mergedChains.length > 3 ? " (>3 ⇒ a diagonal in 3-D)" : "");
-
-  syncPresetHighlight();
 }
 
 // ---------------------------------------------------------------------------
@@ -299,50 +291,12 @@ function updateScene() {
 }
 
 // ---------------------------------------------------------------------------
-//  Panel: presets
+//  Rule library: start with the standard modal rules (reload to reset)
 // ---------------------------------------------------------------------------
-const PRESET_DESC = {
-  independent: "No dependencies — the full 5-cube (32 logics).",
-  tImpliesD: "Only t ⊨ d. The single chain merge; everything else stays independent.",
-  symTrans: "b∧4⊨5 and b∧5⊨4: any two of symmetric/transitive/euclidean give the third. Conjunctive — folds nodes but merges no axes.",
-  modal: "The real modal-logic entailments — folds the cube to the 15 logics K…S5.",
-};
-const presetsEl = document.getElementById("presets");
-for (const [pkey, p] of Object.entries(PRESETS)) {
-  const btn = document.createElement("button");
-  btn.textContent = p.label;
-  btn.dataset.preset = pkey;
-  btn.title = PRESET_DESC[pkey] || "";
-  btn.addEventListener("click", () => loadPreset(pkey));
-  presetsEl.appendChild(btn);
-}
-
-const bitOf = (ax) => 1 << AXES.indexOf(ax);
-const ruleKey = (r) => maskOf([...r.prem]) + ":" + (r.concl ? bitOf(r.concl) : 0);
-const presetKeySet = (pkey) =>
-  new Set(PRESETS[pkey].rules.map((s) => maskOf(s.slice(0, -1)) + ":" + bitOf(s[s.length - 1])));
-
-// A preset just sets which rules in the library are active (adding any it needs);
-// rules are never destroyed, so you can toggle compositions freely.
-function loadPreset(pkey) {
-  const pk = presetKeySet(pkey);
-  for (const s of PRESETS[pkey].rules) {
-    const concl = s[s.length - 1], k = maskOf(s.slice(0, -1)) + ":" + bitOf(concl);
-    if (!rules.some((r) => r.concl && ruleKey(r) === k))
-      rules.push({ prem: new Set(s.slice(0, -1)), concl, active: true });
-  }
-  rules.forEach((r) => { if (r.concl && r.prem.size > 0) r.active = pk.has(ruleKey(r)); });
-  renderRules();
-  recompute();
-}
-
-// highlight whichever preset matches the current active-rule composition
-function syncPresetHighlight() {
-  const ak = new Set(rules.filter((r) => r.active && r.concl && r.prem.size > 0).map(ruleKey));
-  presetsEl.querySelectorAll("button").forEach((b) => {
-    const pk = presetKeySet(b.dataset.preset);
-    b.classList.toggle("active", pk.size === ak.size && [...pk].every((k) => ak.has(k)));
-  });
+function seedModalRules() {
+  rules = PRESETS.modal.rules.map((s) => ({
+    prem: new Set(s.slice(0, -1)), concl: s[s.length - 1], active: true,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +318,16 @@ function chip(ax, on, kind) {
 
 function ruleRow(rule) {
   const row = document.createElement("div");
-  row.className = "rule";
+  row.className = "rule-row";
+
+  // meta control: move between buckets (outside the rule box, on the left)
+  const mv = document.createElement("button"); mv.className = "rrbtn mv";
+  mv.textContent = rule.active ? "↓" : "↑";
+  mv.title = rule.active ? "Park this rule (move to Off)" : "Apply this rule (move to Active)";
+  mv.addEventListener("click", () => { rule.active = !rule.active; renderRules(); recompute(); });
+
+  // the rule itself
+  const box = document.createElement("div"); box.className = "rule";
   const prem = document.createElement("div"); prem.className = "prem";
   AXES.forEach((ax) => {
     const c = chip(ax, rule.prem.has(ax), "prem");
@@ -387,14 +350,14 @@ function ruleRow(rule) {
     });
     concl.appendChild(c);
   });
-  const mv = document.createElement("button"); mv.className = "mv";
-  mv.textContent = rule.active ? "↓" : "↑";
-  mv.title = rule.active ? "Park this rule (move to Off)" : "Apply this rule (move to Active)";
-  mv.addEventListener("click", () => { rule.active = !rule.active; renderRules(); recompute(); });
-  const rm = document.createElement("button"); rm.className = "rm"; rm.textContent = "×";
+  box.append(prem, turn, concl);
+
+  // meta control: delete (outside the rule box, on the right)
+  const rm = document.createElement("button"); rm.className = "rrbtn rm"; rm.textContent = "×";
   rm.title = "Delete rule";
   rm.addEventListener("click", () => { rules.splice(rules.indexOf(rule), 1); renderRules(); recompute(); });
-  row.append(prem, turn, concl, mv, rm);
+
+  row.append(mv, box, rm);
   return row;
 }
 
@@ -446,7 +409,6 @@ function renderDims() {
   });
 }
 document.getElementById("covers").addEventListener("change", (e) => { coversOnly = e.target.checked; recompute(); });
-document.getElementById("labels-on").addEventListener("change", (e) => { showLabels = e.target.checked; recompute(); });
 
 // ---------------------------------------------------------------------------
 //  Resize + loop
@@ -464,17 +426,22 @@ function tick() {
 }
 
 function start() {
-  // default to the "answer": modal preset, merged-axes (fig-1) view, clean covers
+  // default to the "answer": standard modal rules, merged-axes (fig-1) view, clean covers
   document.getElementById("covers").checked = true; coversOnly = true;
-  document.getElementById("labels-on").checked = true; showLabels = true;
+  showLabels = true;
   layoutMode = 2;
   layoutSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.layout === "2"));
   activeAxes = new Set(AXES);
   renderDims();
-  loadPreset("modal");
+  seedModalRules();
+  renderRules();
+  recompute();
 }
 start();
 addEventListener("pageshow", start);
 tick();
 
-window.foldDemo = { scene, camera, controls, verts, edges, loadPreset, get rules() { return rules; } };
+window.foldDemo = {
+  scene, camera, controls, verts, edges, seedModalRules, recompute,
+  get rules() { return rules; }, get chains() { return mergedChains; },
+};

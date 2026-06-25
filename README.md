@@ -13,38 +13,37 @@ with no camera/3D, so it couldn't provide the requested 3-DOF multitouch camera.
 
 - **`index.html`** — the modal logic cube: the K…S5 Hasse diagram, toggle axioms.
 - **`collapse.html`** — *Folding the 5-cube*: starts from the full 5-cube (32
-  logics, the "hyper-hyper-cube") and lets you enter **Horn dependency rules**
+  logics, the "hyper-hyper-cube") and lets you compose **Horn dependency rules**
   (`premises ⊨ conclusion`) that identify vertices and **fold** the hypercube
-  down. The `Modal logic` preset reproduces the 15-logic structure of the first
-  page. Features:
+  down. It loads with the standard modal rules active (reproducing the 15-logic
+  structure of the first page); reload to reset. Features:
   - **Dimensions**: toggle which axioms are "in play" (1–5) to build intuition
     in fewer dimensions first (e.g. just `{t,d}` is the minimal `t⊨d` fold:
     a square → the chain K→D→T).
   - **Rule buckets**: rules live in an **Active** (applied) or **Off** (parked)
-    bucket; click `↓`/`↑` to move one between them, never losing it. Presets
-    just set which rules are active (and the matching preset highlights itself),
-    so you can compare compositions — e.g. modal *minus* `t⊨d` — with one click.
-    Each axiom has a *stable home direction* in the merged-axes view, so toggling
-    a rule only moves the axioms it involves rather than reshuffling everything.
+    bucket; the `↓`/`↑` meta-button (left of each rule) moves it between them,
+    `×` (right) deletes it. Rules are never lost, so you can compare compositions
+    — e.g. modal *minus* `t⊨d` — with one click. Each axiom has a *stable home
+    direction* in the merged-axes view, so toggling a rule only moves the axioms
+    it involves rather than reshuffling everything.
   - **Three layouts**: a geometric **cube** (penteract projection), a graded
     **diamond** (rank-by-rank, the 1-5-10-10-5-1 lattice), and **merged axes** —
     a linear *sum-of-axis-vectors* embedding that automatically puts axioms on a
     **shared axis when they form a single-implication chain**. It detects the
-    chains from the current rules (minimum chain cover / Dilworth), so for the
-    modal preset it reproduces page 1's textbook layout exactly (`t` and `d`
-    share the vertical axis because `t ⊨ d`), and it adapts to any rule set. The
-    read-out shows the grouping, e.g. `t·d | 4 | b | 5 → 4 directions`.
+    chains from the current rules (minimum chain cover / Dilworth), so with the
+    modal rules it reproduces page 1's textbook layout exactly (`t` and `d`
+    share the vertical axis because `t ⊨ d`), and it adapts to any rule set.
   - **covers only**: hides the transitive edges to leave the clean Hasse diagram.
 
-  Defaults to the modal preset, merged-axes view, covers-only — i.e. the fig-1
-  answer to "the modal cube is a collapsed penteract." Switch to `Independent` +
-  `cube` to see the unfolded 5-cube.
+  Defaults to the modal rules, merged-axes view, covers-only — i.e. the fig-1
+  answer to "the modal cube is a collapsed penteract." Park all the rules (or
+  switch to `cube`) to see the unfolded 5-cube.
 
   *Dimension vs. node collapse:* single-axiom implications (`t ⊨ d`) **merge
   axes** (5 → 4 directions); conjunctive rules (`b ∧ 4 ⊨ 5`) **collapse nodes**
-  but not axes (the `Sym/Trans/Eucl interlock` preset still reports 5 directions
-  while folding 32 → 24 logics). Merging the `t,d` chain still leaves 4
-  directions > 3 spatial axes, which is why axiom 5 lands on a diagonal.
+  but not axes (e.g. `b∧4⊨5` + `b∧5⊨4` still needs 5 directions while folding
+  32 → 24 logics). Merging the `t,d` chain still leaves 4 directions > 3 spatial
+  axes, which is why axiom 5 lands on a diagonal.
 
 ## Run
 
