@@ -2,14 +2,15 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
-  AXES, N, NSUB, AX_COLOR, axesOf, popcount, maskOf, closure,
+  AXES, N, NSUB, AX_COLOR, AX_FORMULA, AX_NAME, axesOf, popcount, maskOf, closure,
   makeRule, analyze, PRESETS, MODAL_NAMES,
 } from "./closure.js";
 
 // ---------------------------------------------------------------------------
 //  State
 // ---------------------------------------------------------------------------
-// rules: [{ prem:Set<axis>, concl:axis|null }]
+// the rule library: [{ prem:Set<axis>, concl:axis|null, active:bool }]
+// `active` rules are applied; inactive ones are parked in the "Off" bucket.
 let rules = [];
 let layoutMode = 0;            // 0 = cube, 1 = diamond, 2 = fig-1
 let coversOnly = false;
@@ -61,13 +62,25 @@ for (let m = 0; m < NSUB; m++) {
 //   IMPLICATION CHAIN share one direction. Generalises the fig-1 trick: t and d
 //   chain (t ⊨ d) so they get one axis; for the modal preset this reproduces
 //   page 1 exactly. The chain count = number of independent directions needed.
-const MERGE_DIRS = [
-  new THREE.Vector3(0, 3.2, 0),       // 1st chain -> vertical
-  new THREE.Vector3(0, 0, -3.2),      // 2nd       -> depth
-  new THREE.Vector3(3.2, 0, 0),       // 3rd       -> horizontal
-  new THREE.Vector3(1.6, 0, -1.6),    // 4th       -> diagonal (can't be axis-parallel in 3-D)
-  new THREE.Vector3(-1.35, 1.6, 1.7), // 5th       -> diagonal
-];
+// Each axiom has a STABLE home direction. A chain adopts the home of its
+// lowest-index member; the others overlay onto that same axis. This keeps a
+// rule-toggle LOCAL — only the axioms it actually involves move, not a global
+// reshuffle. Homes are chosen so the modal preset reproduces fig 1:
+// t = vertical, 4 = depth, b = horizontal, 5 = diagonal; d's own home (used
+// only when it is NOT merged onto t) is the spare diagonal.
+const HOME_DIR = {
+  t: new THREE.Vector3(0, 3.2, 0),
+  "4": new THREE.Vector3(0, 0, -3.2),
+  b: new THREE.Vector3(3.2, 0, 0),
+  "5": new THREE.Vector3(1.6, 0, -1.6),
+  d: new THREE.Vector3(-1.35, 1.6, 1.7),
+};
+// FIXED centring point (the centroid of the modal assignment). Subtracting a
+// constant — rather than each layout's own centroid — means toggling a rule
+// translates nothing: axioms the rule doesn't involve stay exactly put.
+const MERGED_CENTER = HOME_DIR.t.clone().add(
+  HOME_DIR["4"].clone().add(HOME_DIR.b).add(HOME_DIR["5"]).multiplyScalar(0.5)
+);
 const mergedPosCache = new Array(NSUB);
 let mergedChains = []; // for the read-out / explanation
 
@@ -104,17 +117,18 @@ function recomputeMergedLayout(arules) {
   }
   chains.sort((c1, c2) => Math.min(...c1.map(idx)) - Math.min(...c2.map(idx)));
   mergedChains = chains;
+  // a chain takes the stable home direction of its lowest-index member
   const dirOf = {};
-  chains.forEach((chain, ci) => chain.forEach((a) => (dirOf[a] = MERGE_DIRS[ci])));
+  for (const chain of chains) {
+    const rep = chain.reduce((m, a) => (idx(a) < idx(m) ? a : m));
+    chain.forEach((a) => (dirOf[a] = HOME_DIR[rep]));
+  }
 
-  const centroid = new THREE.Vector3();
   for (let m = 0; m < NSUB; m++) {
     const p = new THREE.Vector3();
     AXES.forEach((a, i) => { if ((m & (1 << i)) && dirOf[a]) p.add(dirOf[a]); });
-    mergedPosCache[m] = p; centroid.add(p);
+    mergedPosCache[m] = p.sub(MERGED_CENTER);
   }
-  centroid.multiplyScalar(1 / NSUB);
-  for (let m = 0; m < NSUB; m++) mergedPosCache[m].sub(centroid);
 }
 
 const LAYOUTS = [cubePosCache, diamondPosCache, mergedPosCache];
@@ -187,10 +201,10 @@ for (let m = 0; m < NSUB; m++) {
 // ---------------------------------------------------------------------------
 //  Recompute closure-derived data
 // ---------------------------------------------------------------------------
-// rules valid in the current dimension set (every axiom they mention is active)
+// applied rules: in the Active bucket, complete, and within the active dimensions
 function activeRules() {
   return rules
-    .filter((r) => r.concl && r.prem.size > 0)
+    .filter((r) => r.active && r.concl && r.prem.size > 0)
     .filter((r) => activeAxes.has(r.concl) && [...r.prem].every((a) => activeAxes.has(a)))
     .map((r) => makeRule([...r.prem], r.concl));
 }
@@ -235,6 +249,8 @@ function recompute() {
   document.getElementById("merge-info").textContent =
     `merged axes:  ${groups}  →  ${mergedChains.length} direction${mergedChains.length === 1 ? "" : "s"}` +
     (mergedChains.length > 3 ? " (>3 ⇒ a diagonal in 3-D)" : "");
+
+  syncPresetHighlight();
 }
 
 // ---------------------------------------------------------------------------
@@ -285,77 +301,118 @@ function updateScene() {
 // ---------------------------------------------------------------------------
 //  Panel: presets
 // ---------------------------------------------------------------------------
+const PRESET_DESC = {
+  independent: "No dependencies — the full 5-cube (32 logics).",
+  tImpliesD: "Only t ⊨ d. The single chain merge; everything else stays independent.",
+  symTrans: "b∧4⊨5 and b∧5⊨4: any two of symmetric/transitive/euclidean give the third. Conjunctive — folds nodes but merges no axes.",
+  modal: "The real modal-logic entailments — folds the cube to the 15 logics K…S5.",
+};
 const presetsEl = document.getElementById("presets");
-for (const [pkmkey, p] of Object.entries(PRESETS)) {
+for (const [pkey, p] of Object.entries(PRESETS)) {
   const btn = document.createElement("button");
   btn.textContent = p.label;
-  btn.dataset.preset = pkmkey;
-  btn.addEventListener("click", () => loadPreset(pkmkey));
+  btn.dataset.preset = pkey;
+  btn.title = PRESET_DESC[pkey] || "";
+  btn.addEventListener("click", () => loadPreset(pkey));
   presetsEl.appendChild(btn);
 }
+
+const bitOf = (ax) => 1 << AXES.indexOf(ax);
+const ruleKey = (r) => maskOf([...r.prem]) + ":" + (r.concl ? bitOf(r.concl) : 0);
+const presetKeySet = (pkey) =>
+  new Set(PRESETS[pkey].rules.map((s) => maskOf(s.slice(0, -1)) + ":" + bitOf(s[s.length - 1])));
+
+// A preset just sets which rules in the library are active (adding any it needs);
+// rules are never destroyed, so you can toggle compositions freely.
 function loadPreset(pkey) {
-  rules = PRESETS[pkey].rules.map((short) => ({
-    prem: new Set(short.slice(0, -1)),
-    concl: short[short.length - 1],
-  }));
-  presetsEl.querySelectorAll("button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.preset === pkey));
+  const pk = presetKeySet(pkey);
+  for (const s of PRESETS[pkey].rules) {
+    const concl = s[s.length - 1], k = maskOf(s.slice(0, -1)) + ":" + bitOf(concl);
+    if (!rules.some((r) => r.concl && ruleKey(r) === k))
+      rules.push({ prem: new Set(s.slice(0, -1)), concl, active: true });
+  }
+  rules.forEach((r) => { if (r.concl && r.prem.size > 0) r.active = pk.has(ruleKey(r)); });
   renderRules();
   recompute();
 }
 
+// highlight whichever preset matches the current active-rule composition
+function syncPresetHighlight() {
+  const ak = new Set(rules.filter((r) => r.active && r.concl && r.prem.size > 0).map(ruleKey));
+  presetsEl.querySelectorAll("button").forEach((b) => {
+    const pk = presetKeySet(b.dataset.preset);
+    b.classList.toggle("active", pk.size === ak.size && [...pk].every((k) => ak.has(k)));
+  });
+}
+
 // ---------------------------------------------------------------------------
-//  Panel: rule editor
+//  Panel: rule editor (two buckets — Active / Off)
 // ---------------------------------------------------------------------------
-const rulesEl = document.getElementById("rules");
+const rulesActiveEl = document.getElementById("rules-active");
+const rulesOffEl = document.getElementById("rules-off");
+
 function chip(ax, on, kind) {
   const b = document.createElement("button");
   b.className = "chip" + (on ? " on" : "");
   b.textContent = ax;
   b.style.background = on ? AX_COLOR[ax] : "";
   b.style.borderColor = on ? AX_COLOR[ax] : "";
-  b.dataset.ax = ax; b.dataset.kind = kind;
+  b.title = `${ax} : ${AX_FORMULA[ax]}  ·  ${AX_NAME[ax]}` +
+    (kind === "prem" ? "  (toggle premise)" : "  (toggle conclusion)");
   return b;
 }
-function markEdited() {
-  presetsEl.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-}
-function renderRules() {
-  rulesEl.innerHTML = "";
-  rules.forEach((rule, ri) => {
-    const row = document.createElement("div");
-    row.className = "rule";
-    const prem = document.createElement("div"); prem.className = "prem";
-    AXES.forEach((ax) => {
-      const c = chip(ax, rule.prem.has(ax), "prem");
-      c.addEventListener("click", () => {
-        rule.prem.has(ax) ? rule.prem.delete(ax) : rule.prem.add(ax);
-        if (rule.concl === ax) rule.concl = null; // conclusion can't be a premise
-        markEdited(); renderRules(); recompute();
-      });
-      prem.appendChild(c);
+
+function ruleRow(rule) {
+  const row = document.createElement("div");
+  row.className = "rule";
+  const prem = document.createElement("div"); prem.className = "prem";
+  AXES.forEach((ax) => {
+    const c = chip(ax, rule.prem.has(ax), "prem");
+    c.addEventListener("click", () => {
+      rule.prem.has(ax) ? rule.prem.delete(ax) : rule.prem.add(ax);
+      if (rule.concl === ax) rule.concl = null;        // conclusion can't be a premise
+      renderRules(); recompute();
     });
-    const turn = document.createElement("span"); turn.className = "turn"; turn.textContent = "⊨";
-    const concl = document.createElement("div"); concl.className = "concl";
-    AXES.forEach((ax) => {
-      const sel = rule.concl === ax;
-      const c = chip(ax, sel, "concl");
-      c.addEventListener("click", () => {
-        rule.concl = sel ? null : ax;
-        if (rule.concl) rule.prem.delete(ax);
-        markEdited(); renderRules(); recompute();
-      });
-      concl.appendChild(c);
-    });
-    const rm = document.createElement("button"); rm.className = "rm"; rm.textContent = "×";
-    rm.addEventListener("click", () => { rules.splice(ri, 1); markEdited(); renderRules(); recompute(); });
-    row.append(prem, turn, concl, rm);
-    rulesEl.appendChild(row);
+    prem.appendChild(c);
   });
+  const turn = document.createElement("span"); turn.className = "turn"; turn.textContent = "⊨";
+  const concl = document.createElement("div"); concl.className = "concl";
+  AXES.forEach((ax) => {
+    const sel = rule.concl === ax;
+    const c = chip(ax, sel, "concl");
+    c.addEventListener("click", () => {
+      rule.concl = sel ? null : ax;
+      if (rule.concl) rule.prem.delete(ax);
+      renderRules(); recompute();
+    });
+    concl.appendChild(c);
+  });
+  const mv = document.createElement("button"); mv.className = "mv";
+  mv.textContent = rule.active ? "↓" : "↑";
+  mv.title = rule.active ? "Park this rule (move to Off)" : "Apply this rule (move to Active)";
+  mv.addEventListener("click", () => { rule.active = !rule.active; renderRules(); recompute(); });
+  const rm = document.createElement("button"); rm.className = "rm"; rm.textContent = "×";
+  rm.title = "Delete rule";
+  rm.addEventListener("click", () => { rules.splice(rules.indexOf(rule), 1); renderRules(); recompute(); });
+  row.append(prem, turn, concl, mv, rm);
+  return row;
 }
+
+function renderRules() {
+  rulesActiveEl.innerHTML = "";
+  rulesOffEl.innerHTML = "";
+  const act = rules.filter((r) => r.active);
+  const off = rules.filter((r) => !r.active);
+  act.forEach((r) => rulesActiveEl.appendChild(ruleRow(r)));
+  off.forEach((r) => rulesOffEl.appendChild(ruleRow(r)));
+  if (!act.length) rulesActiveEl.innerHTML = '<div class="bucket-empty">no active rules — axioms are independent</div>';
+  if (!off.length) rulesOffEl.innerHTML = '<div class="bucket-empty">empty</div>';
+  document.getElementById("n-active").textContent = act.length ? `(${act.length})` : "";
+}
+
 document.getElementById("addrule").addEventListener("click", () => {
-  rules.push({ prem: new Set(), concl: null });
-  markEdited(); renderRules();
+  rules.push({ prem: new Set(), concl: null, active: true });
+  renderRules(); recompute();
 });
 
 // ---------------------------------------------------------------------------
@@ -379,6 +436,7 @@ function renderDims() {
     c.textContent = ax;
     c.style.background = on ? AX_COLOR[ax] : "";
     c.style.borderColor = on ? AX_COLOR[ax] : "";
+    c.title = `${ax} : ${AX_FORMULA[ax]}  ·  ${AX_NAME[ax]}\n${on ? "in play — click to remove this dimension" : "click to add this dimension"}`;
     c.addEventListener("click", () => {
       if (on) { if (activeAxes.size > 1) activeAxes.delete(ax); } // keep >=1
       else activeAxes.add(ax);

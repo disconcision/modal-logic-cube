@@ -20,6 +20,12 @@ with no camera/3D, so it couldn't provide the requested 3-DOF multitouch camera.
   - **Dimensions**: toggle which axioms are "in play" (1–5) to build intuition
     in fewer dimensions first (e.g. just `{t,d}` is the minimal `t⊨d` fold:
     a square → the chain K→D→T).
+  - **Rule buckets**: rules live in an **Active** (applied) or **Off** (parked)
+    bucket; click `↓`/`↑` to move one between them, never losing it. Presets
+    just set which rules are active (and the matching preset highlights itself),
+    so you can compare compositions — e.g. modal *minus* `t⊨d` — with one click.
+    Each axiom has a *stable home direction* in the merged-axes view, so toggling
+    a rule only moves the axioms it involves rather than reshuffling everything.
   - **Three layouts**: a geometric **cube** (penteract projection), a graded
     **diamond** (rank-by-rank, the 1-5-10-10-5-1 lattice), and **merged axes** —
     a linear *sum-of-axis-vectors* embedding that automatically puts axioms on a
